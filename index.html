@@ -428,71 +428,57 @@ function save(){
   updInf();
 }
 
-// ===================== CLOUD SYNC（GitHub版） =====================
-
-const GITHUB_OWNER = 'Freddie88621';
-const GITHUB_REPO = 'Management-System';
-const GITHUB_FILE = 'data.json';
-const GITHUB_TOKEN = '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';
-
-const GITHUB_API = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_FILE}`;
-
+// ===================== CLOUD SYNC =====================
+let cloudCfg={key:'',binId:''};
+function loadCloudCfg(){
+  try{const c=localStorage.getItem('__rdtms_cloud__');if(c)cloudCfg=JSON.parse(c);}catch(e){}
+  const ki=document.getElementById('cl-key'),bi=document.getElementById('cl-bin');
+  if(ki)ki.value=cloudCfg.key||'';
+  if(bi)bi.value=cloudCfg.binId||'';
+}
+function saveCloudCfg(){
+  cloudCfg.key=document.getElementById('cl-key')?.value.trim()||'';
+  cloudCfg.binId=document.getElementById('cl-bin')?.value.trim()||'';
+  localStorage.setItem('__rdtms_cloud__',JSON.stringify(cloudCfg));
+  toast('☁ 云同步设置已保存');
+}
+function setClSt(msg,col){const el=document.getElementById('cl-status');if(el){el.textContent=msg;el.style.color=col||'#888';}}
 async function pushCloud(){
+  if(!cloudCfg.key||!cloudCfg.binId){toast('请先在数据管理页配置云同步Key和Bin ID');return;}
+  setClSt('正在推送…','#1890ff');
   try{
-    const getRes = await fetch(GITHUB_API,{
-      headers:{Authorization:`token ${GITHUB_TOKEN}`}
-    });
-    const getData = await getRes.json();
-
-    const sha = getData.sha;
-
-    const content = btoa(unescape(encodeURIComponent(JSON.stringify(D,null,2))));
-
-    const res = await fetch(GITHUB_API,{
+    const r=await fetch(`https://api.jsonbin.io/v3/b/${cloudCfg.binId}`,{
       method:'PUT',
-      headers:{
-        Authorization:`token ${GITHUB_TOKEN}`,
-        'Content-Type':'application/json'
-      },
-      body:JSON.stringify({
-        message:'update data',
-        content,
-        sha
-      })
+      headers:{'Content-Type':'application/json','X-Master-Key':cloudCfg.key,'X-Bin-Versioning':'false'},
+      body:JSON.stringify(D)
     });
-
-    if(!res.ok) throw new Error('上传失败');
-
-    toast('✅ 已同步到GitHub');
-  }catch(e){
-    toast('❌ 同步失败：'+e.message);
-  }
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    setClSt('✅ 已同步到云端 '+new Date().toLocaleTimeString('zh-CN'),'#52c41a');
+  }catch(e){setClSt('❌ 推送失败：'+e.message,'#ff4d4f');toast('❌ 云同步推送失败：'+e.message);}
 }
-
 async function pullCloud(){
+  if(!cloudCfg.key||!cloudCfg.binId){toast('请先配置云同步Key和Bin ID');return;}
+  setClSt('正在拉取…','#1890ff');
   try{
-    const res = await fetch(GITHUB_API);
-    const data = await res.json();
-
-    if(!data.content) return;
-
-    const decoded = JSON.parse(decodeURIComponent(escape(atob(data.content))));
-
-    if(decoded?.tasks && decoded?.phases){
-      D = decoded;
-      save();
-      init();
-      toast('✅ 已自动加载云端数据');
-    }
-  }catch(e){
-    console.log(e);
-  }
+    const r=await fetch(`https://api.jsonbin.io/v3/b/${cloudCfg.binId}/latest`,{
+      headers:{'X-Master-Key':cloudCfg.key}
+    });
+    if(!r.ok)throw new Error('HTTP '+r.status);
+    const j=await r.json();
+    const d=j.record;
+    if(!d||!d.tasks||!d.phases)throw new Error('云端数据格式不正确');
+    confirm2('从云端拉取数据将覆盖当前本地数据，是否继续？',()=>{
+      D=d;save();init();
+      setClSt('✅ 已从云端拉取 '+new Date().toLocaleTimeString('zh-CN'),'#52c41a');
+      toast('✅ 已从云端拉取最新数据，共'+D.tasks.length+'条任务');
+    });
+  }catch(e){setClSt('❌ 拉取失败：'+e.message,'#ff4d4f');toast('❌ 云端拉取失败：'+e.message);}
 }
-  
+
 function saveLoc(){
   save();
-  pushCloud(); // ⭐ 加这一行
-  toast('✅ 已保存并同步到云端');
+  if(cloudCfg.key&&cloudCfg.binId){pushCloud();toast('✅ 已保存并推送到云端');}
+  else{toast('✅ 数据已保存（提示：在数据管理页配置云同步可跨电脑使用）');}
 }
 
 let toastT;
@@ -1207,7 +1193,6 @@ window.addEventListener('DOMContentLoaded',async ()=>{
       if(r.ok){const j=await r.json();const d=j.record;if(d?.tasks&&d?.phases){D=d;save();}}
     }catch(e){}
   }
-  await pullCloud();
   init();
 });
 </script>
